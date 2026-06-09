@@ -4,6 +4,7 @@ import model.Board;
 import model.Coordinate;
 import model.Direction;
 import model.ShotResult;
+import model.CellStatus;
 
 import java.util.*;
 
@@ -17,6 +18,7 @@ public class SmartBot {
     private Direction lastDirection = null;
     private Coordinate firstHit = null;
     private List<Coordinate> currentShipHits = new ArrayList<>();
+    private boolean tryingOpposite = false;
 
     private Coordinate lastShot = null;
     private ShotResult lastResult = null;
@@ -26,6 +28,9 @@ public class SmartBot {
 
         if (!targetQueue.isEmpty()) {
             shot = targetQueue.poll();
+            if (missedShots.contains(shot) || hitShots.contains(shot)) {
+                return makeMove(enemyBoard);
+            }
             System.out.println("Бот добивает: " + shot);
             return shot;
         }
@@ -41,13 +46,12 @@ public class SmartBot {
 
         if (result == ShotResult.MISS) {
             missedShots.add(shot);
-            if (firstHit != null && currentShipHits.size() == 1) {
-                tryOppositeDirection();
-            }
+            handleMiss();
         }
         else if (result == ShotResult.HIT) {
             hitShots.add(shot);
             currentShipHits.add(shot);
+            tryingOpposite = false;
 
             if (firstHit == null) {
                 firstHit = shot;
@@ -65,12 +69,27 @@ public class SmartBot {
         }
     }
 
+    private void handleMiss() {
+        if (firstHit != null && !tryingOpposite) {
+            tryingOpposite = true;
+            tryOppositeDirection();
+        } else if (firstHit != null && tryingOpposite) {
+            targetQueue.clear();
+            resetShipHunt();
+        }
+    }
+
     private Coordinate findNewTarget(Board enemyBoard) {
         List<Coordinate> candidates = new ArrayList<>();
 
         for (int row = 0; row < 16; row++) {
             for (int col = 0; col < 16; col++) {
                 Coordinate coord = new Coordinate(row, col);
+
+                CellStatus status = enemyBoard.getCell(row, col);
+                if (status == CellStatus.MISS || status == CellStatus.HIT || status == CellStatus.SUNK) {
+                    missedShots.add(coord);
+                }
 
                 if ((row + col) % 2 == 0) {
                     if (!missedShots.contains(coord) && !hitShots.contains(coord)) {
@@ -79,11 +98,12 @@ public class SmartBot {
                 }
             }
         }
+
         if (candidates.isEmpty()) {
             for (int row = 0; row < 16; row++) {
                 for (int col = 0; col < 16; col++) {
                     Coordinate coord = new Coordinate(row, col);
-                    if(!missedShots.contains(coord) && !hitShots.contains(coord)) {
+                    if (!missedShots.contains(coord) && !hitShots.contains(coord)) {
                         candidates.add(coord);
                     }
                 }
@@ -150,8 +170,7 @@ public class SmartBot {
             lastDirection = opposite;
         } else {
             targetQueue.clear();
-            firstHit = null;
-            lastDirection = null;
+            resetShipHunt();
         }
     }
 
@@ -194,6 +213,7 @@ public class SmartBot {
         lastDirection = null;
         currentShipHits.clear();
         targetQueue.clear();
+        tryingOpposite = false;
     }
 
     public String getName() {
@@ -207,6 +227,7 @@ public class SmartBot {
         currentShipHits.clear();
         firstHit = null;
         lastDirection = null;
+        tryingOpposite = false;
         lastShot = null;
         lastResult = null;
     }
