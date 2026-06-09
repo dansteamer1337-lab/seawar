@@ -2,6 +2,7 @@ package bot;
 
 import model.Board;
 import model.Coordinate;
+import model.Direction;
 import model.ShotResult;
 
 import java.util.*;
@@ -13,6 +14,9 @@ public class SmartBot {
     private final Queue<Coordinate> targetQueue = new LinkedList<>();
     private final Board myBoard = new Board();
     private final Random random = new Random();
+    private Direction lastDirection = null;
+    private Coordinate firstHit = null;
+    private List<Coordinate> currentShipHits = new ArrayList<>();
 
     private Coordinate lastShot = null;
     private ShotResult lastResult = null;
@@ -29,26 +33,35 @@ public class SmartBot {
         shot = findNewTarget(enemyBoard);
         System.out.println("Бот ищет корабль " + shot);
         return shot;
-
     }
 
     public void processResult(Coordinate shot, ShotResult result) {
         lastShot = shot;
         lastResult = result;
 
-        if (result == ShotResult.MISS){
+        if (result == ShotResult.MISS) {
             missedShots.add(shot);
+            if (firstHit != null && currentShipHits.size() == 1) {
+                tryOppositeDirection();
+            }
         }
-        else if (result == ShotResult.HIT){
+        else if (result == ShotResult.HIT) {
             hitShots.add(shot);
-            addNeighborsToQueue(shot);
-        }
-        else if (result == ShotResult.SUNK){
-            hitShots.add(shot);
+            currentShipHits.add(shot);
 
+            if (firstHit == null) {
+                firstHit = shot;
+                addNeighborsToQueue(shot);
+            } else {
+                continueInSameDirection(shot);
+            }
+        }
+        else if (result == ShotResult.SUNK) {
+            hitShots.add(shot);
+            currentShipHits.add(shot);
             targetQueue.clear();
-
-            markAroundSunkShip(shot);
+            markAroundSunkShip();
+            resetShipHunt();
         }
     }
 
@@ -91,9 +104,11 @@ public class SmartBot {
         List<Coordinate> neighbors = Arrays.asList(
                 new Coordinate(row - 1, col),
                 new Coordinate(row + 1, col),
-                new Coordinate( row, col - 1),
-                new Coordinate( row, col + 1)
+                new Coordinate(row, col - 1),
+                new Coordinate(row, col + 1)
         );
+
+        Collections.shuffle(neighbors);
 
         for (Coordinate neighbor : neighbors) {
             if (neighbor.getRow() >= 0 && neighbor.getRow() < 16 &&
@@ -101,26 +116,83 @@ public class SmartBot {
 
                 if (!missedShots.contains(neighbor) && !hitShots.contains(neighbor)) {
                     targetQueue.add(neighbor);
+                    if (neighbor.getRow() == row - 1) lastDirection = Direction.UP;
+                    else if (neighbor.getRow() == row + 1) lastDirection = Direction.DOWN;
+                    else if (neighbor.getCol() == col - 1) lastDirection = Direction.LEFT;
+                    else if (neighbor.getCol() == col + 1) lastDirection = Direction.RIGHT;
+                    break;
                 }
             }
         }
     }
 
-    private void markAroundSunkShip(Coordinate lastHit) {
-        for (int dr = -1; dr <= 1; dr++) {
-            for (int dc = -1; dc <= 1; dc++) {
-                int r = lastHit.getRow() + dr;
-                int c = lastHit.getCol() + dc;
+    private void continueInSameDirection(Coordinate shot) {
+        Coordinate next = getNextInDirection(shot, lastDirection);
+        if (next != null && !missedShots.contains(next) && !hitShots.contains(next)) {
+            targetQueue.clear();
+            targetQueue.add(next);
+        } else {
+            tryOppositeDirection();
+        }
+    }
 
-                if (r >= 0 && r < 16 && c >= 0 && c < 16) {
-                    Coordinate coord = new Coordinate(r, c);
+    private void tryOppositeDirection() {
+        Direction opposite = null;
+        if (lastDirection == Direction.UP) opposite = Direction.DOWN;
+        else if (lastDirection == Direction.DOWN) opposite = Direction.UP;
+        else if (lastDirection == Direction.LEFT) opposite = Direction.RIGHT;
+        else if (lastDirection == Direction.RIGHT) opposite = Direction.LEFT;
 
-                    if (!hitShots.contains(coord)) {
-                        missedShots.add(coord);
+        Coordinate next = getNextInDirection(firstHit, opposite);
+        if (next != null && !missedShots.contains(next) && !hitShots.contains(next)) {
+            targetQueue.clear();
+            targetQueue.add(next);
+            lastDirection = opposite;
+        } else {
+            targetQueue.clear();
+            firstHit = null;
+            lastDirection = null;
+        }
+    }
+
+    private Coordinate getNextInDirection(Coordinate start, Direction dir) {
+        if (dir == null) return null;
+        int row = start.getRow();
+        int col = start.getCol();
+        switch (dir) {
+            case UP: row--; break;
+            case DOWN: row++; break;
+            case LEFT: col--; break;
+            case RIGHT: col++; break;
+            default: return null;
+        }
+        if (row >= 0 && row < 16 && col >= 0 && col < 16) {
+            return new Coordinate(row, col);
+        }
+        return null;
+    }
+
+    private void markAroundSunkShip() {
+        for (Coordinate hit : currentShipHits) {
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    int r = hit.getRow() + dr;
+                    int c = hit.getCol() + dc;
+                    if (r >= 0 && r < 16 && c >= 0 && c < 16) {
+                        Coordinate coord = new Coordinate(r, c);
+                        if (!hitShots.contains(coord)) {
+                            missedShots.add(coord);
+                        }
                     }
                 }
             }
         }
+    }
+
+    private void resetShipHunt() {
+        firstHit = null;
+        lastDirection = null;
+        currentShipHits.clear();
         targetQueue.clear();
     }
 
@@ -132,6 +204,9 @@ public class SmartBot {
         missedShots.clear();
         hitShots.clear();
         targetQueue.clear();
+        currentShipHits.clear();
+        firstHit = null;
+        lastDirection = null;
         lastShot = null;
         lastResult = null;
     }
@@ -139,5 +214,4 @@ public class SmartBot {
     public Board getBoard() {
         return myBoard;
     }
-
 }
